@@ -41,6 +41,7 @@ type ParamNull struct {
 	NullInt32   sql.NullInt32   `param:"nullint32" db:"nullint32"`
 	NullInt64   sql.NullInt64   `param:"nullint64" db:"nullint64"`
 	NullFloat64 sql.NullFloat64 `param:"nullfloat64" db:"nullfloat64"`
+	NullBool    sql.NullBool    `param:"nullbool" db:"nullbool"`
 }
 
 type ParamPaginationInt64 struct {
@@ -62,6 +63,12 @@ type ParamOperand struct {
 	Int64LT   sql.NullInt64  `param:"int64__lt" db:"int64"`
 	StringNIN []string       `param:"string__nin" db:"string"`
 	StringNEQ sql.NullString `param:"string__neq" db:"string"`
+}
+
+type ParamJsonSearch struct {
+	JsonArr    string         `param:"jsonArr" db:"json_arr" json_key:"$[*]"`          // search array
+	JsonObj    sql.NullString `param:"jsonObj" db:"json_obj" json_key:"$[*].a"`        // search obj
+	JsonArrObj sql.NullString `param:"jsonArrObj" db:"json_arr_obj" json_key:"$[*].a"` // search array of object
 }
 
 func Test_QBuilder_SkipField(t *testing.T) {
@@ -87,6 +94,13 @@ func Test_QBuilder(t *testing.T) {
 		p := ParamPrimitive{}
 		_, _, err := New().Build(p)
 		assert.NotNil(t, err)
+	})
+}
+
+func Test_QBuilder_BuildCount(t *testing.T) {
+	t.Run("Pointer Param", func(t *testing.T) {
+		_, _, err := New().BuildCount()
+		assert.Nil(t, err)
 	})
 }
 
@@ -159,9 +173,10 @@ func Test_QBuilder_SqlNull(t *testing.T) {
 		NullInt32:   sql.NullInt32{Valid: true, Int32: 20},
 		NullInt64:   sql.NullInt64{Valid: true, Int64: 30},
 		NullFloat64: sql.NullFloat64{Valid: true, Float64: 50.22},
+		NullBool:    sql.NullBool{Valid: true, Bool: true},
 	}
-	expClause := " WHERE 1=1 AND nullstring LIKE ? AND nullint32 = ? AND nullint64 = ? AND nullfloat64 = ? LIMIT 0, 10"
-	expArgs := []interface{}{"test", int32(20), int64(30), float64(50.22)}
+	expClause := " WHERE 1=1 AND nullstring LIKE ? AND nullint32 = ? AND nullint64 = ? AND nullfloat64 = ? AND nullbool = ? LIMIT 0, 10"
+	expArgs := []interface{}{"test", int32(20), int64(30), float64(50.22), true}
 
 	clause, args, err := New().Build(&param)
 	assert.Nil(t, err)
@@ -225,7 +240,7 @@ func Test_QBuilder_PaginationInt64(t *testing.T) {
 				Page:  2,
 				Limit: 100,
 			},
-			expClause: " WHERE 1=1 LIMIT 100, 200",
+			expClause: " WHERE 1=1 LIMIT 100, 100",
 		},
 		{
 			desc: "order by asc",
@@ -424,4 +439,19 @@ func Test_QBuilder_WithCustomWhereClause(t *testing.T) {
 		assert.Equal(t, " WHERE 1=1 AND nullstring LIKE ? AND (foo = ? OR bar == ?) AND ping = ? LIMIT 0, 10", clause)
 		assert.Equal(t, []interface{}{"hoho", "bar", "foo", "pong"}, args)
 	})
+}
+
+func Test_QBuilder_JsonSearch(t *testing.T) {
+	param := ParamJsonSearch{
+		JsonArr:    "test",
+		JsonObj:    sql.NullString{Valid: true, String: "hoho"},
+		JsonArrObj: sql.NullString{Valid: true, String: "hehe"},
+	}
+	expClause := ` WHERE 1=1 AND 'test' MEMBER OF (json_arr->'$[*]') AND 'hoho' MEMBER OF (json_obj->'$[*].a') AND 'hehe' MEMBER OF (json_arr_obj->'$[*].a') LIMIT 0, 10`
+	var expArgs []interface{}
+
+	clause, args, err := New().Build(&param)
+	assert.Nil(t, err)
+	assert.Equal(t, expClause, clause)
+	assert.Equal(t, expArgs, args)
 }

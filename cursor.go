@@ -11,16 +11,18 @@ import (
 )
 
 type cursor struct {
-	field reflect.Value // struct field
-	param string        // tag:"param"
-	db    string        // tag:"db"
+	field   reflect.Value // struct field
+	param   string        // tag:"param"
+	db      string        // tag:"db"
+	jsonKey string        // tag:"json_key"
 }
 
-func newCursor(field reflect.Value, param, db string) cursor {
+func newCursor(field reflect.Value, param, db, jsonKey string) cursor {
 	return cursor{
-		field: field,
-		param: param,
-		db:    db,
+		field:   field,
+		param:   param,
+		db:      db,
+		jsonKey: jsonKey,
 	}
 }
 
@@ -90,7 +92,7 @@ func (c *cursor) Make() (clause string, args []interface{}, skip bool) {
 		clause, args, skip = c.makeClauseTimeType()
 	case []string, []int, []int32, []int64, []float32, []float64:
 		clause, args, skip = c.makeClauseArrayType()
-	case sql.NullString, sql.NullInt32, sql.NullInt64, sql.NullFloat64:
+	case sql.NullString, sql.NullInt32, sql.NullInt64, sql.NullFloat64, sql.NullBool:
 		clause, args, skip = c.makeClauseSqlNullType()
 	default:
 	}
@@ -104,7 +106,7 @@ func (c *cursor) makeClausePrimitiveType() (clause string, args []interface{}, s
 
 	switch val := c.field.Interface().(type) {
 	case string:
-		clause, args, skip = c.makeClauseString(whereClauseFmt, operand, val)
+		clause, args, skip = c.makeClauseString(operand, val)
 	case int, int32, int64, float32, float64:
 		clause, args, skip = c.makeClause(whereClauseFmt, operand, val)
 	default:
@@ -153,6 +155,8 @@ func (c *cursor) makeClauseSqlNullType() (clause string, args []interface{}, ski
 		clause, args, skip = c.makeClauseNullInt64(whereClauseFmt, operand, val)
 	case sql.NullFloat64:
 		clause, args, skip = c.makeClauseNullFloat64(whereClauseFmt, operand, val)
+	case sql.NullBool:
+		clause, args, skip = c.makeClauseNullBool(whereClauseFmt, operand, val)
 	default:
 	}
 
@@ -166,7 +170,12 @@ func (c *cursor) makeClause(layout, operand string, val interface{}) (clause str
 	return
 }
 
-func (c *cursor) makeClauseString(layout, operand string, val string) (clause string, args []interface{}, skip bool) {
+func (c *cursor) makeClauseString(operand string, val string) (clause string, args []interface{}, skip bool) {
+	if c.jsonKey != "" {
+		clause += fmt.Sprintf(" AND "+whereClauseJsonMemberFmt, val, c.db, c.jsonKey)
+		return
+	}
+
 	if c.field.String() == "" {
 		skip = true
 		return
@@ -176,7 +185,7 @@ func (c *cursor) makeClauseString(layout, operand string, val string) (clause st
 		operand = "LIKE"
 	}
 
-	return c.makeClause(layout, operand, val)
+	return c.makeClause(whereClauseFmt, operand, val)
 }
 
 func (c *cursor) makeClauseTime(layout, operand string, val time.Time) (clause string, args []interface{}, skip bool) {
@@ -215,11 +224,8 @@ func (c *cursor) makeClauseNullString(layout, operand string, val sql.NullString
 		skip = true
 		return
 	}
-	if operand == "=" {
-		operand = "LIKE"
-	}
 
-	return c.makeClause(layout, operand, val.String)
+	return c.makeClauseString(operand, val.String)
 }
 
 func (c *cursor) makeClauseNullInt32(layout, operand string, val sql.NullInt32) (clause string, args []interface{}, skip bool) {
@@ -247,4 +253,15 @@ func (c *cursor) makeClauseNullFloat64(layout, operand string, val sql.NullFloat
 	}
 
 	return c.makeClause(layout, operand, val.Float64)
+}
+
+func (c *cursor) makeClauseNullBool(layout, operand string, val sql.NullBool) (clause string, args []interface{}, skip bool) {
+	if !val.Valid {
+		skip = true
+		return
+	}
+	clause = fmt.Sprintf(layout, c.db, operand)
+	args = append(args, val.Bool)
+
+	return
 }

@@ -10,8 +10,10 @@ const (
 	defaultPage  int64 = 1
 	defaultLimit int64 = 10
 
-	whereClauseFmt      = " AND %s %s ?"
-	whereClauseMultiFmt = " AND %s %s (?)"
+	whereClauseFmt           = " AND %s %s ?"
+	whereClauseMultiFmt      = " AND %s %s (?)"
+	whereClauseJsonFmt       = `JSON_CONTAINS(%s, '"%s"', '%s') = 1` // field, value, key
+	whereClauseJsonMemberFmt = "'%s' MEMBER OF (%s->'%s')"
 )
 
 type queryBuilder struct {
@@ -136,7 +138,7 @@ func (q *queryBuilder) makeOrderByClause() string {
 
 func (q *queryBuilder) makeLimitClause() string {
 	offset := (q.page - 1) * q.limit
-	limitClause := fmt.Sprintf(" LIMIT %d, %d", offset, offset+q.limit+q.extraLimit)
+	limitClause := fmt.Sprintf(" LIMIT %d, %d", offset, q.limit+q.extraLimit)
 
 	return limitClause
 }
@@ -149,20 +151,43 @@ func (q *queryBuilder) appendCustomWhere() {
 }
 
 func (q *queryBuilder) Build(param interface{}) (sqlClause string, args []interface{}, err error) {
+	if err = q.build(param); err != nil {
+		return
+	}
+
+	sqlClause = q.whereClause + q.makeOrderByClause() + q.makeLimitClause()
+
+	fmt.Println("[qbuilder] clause: ", sqlClause)
+	fmt.Println("[qbuilder] args: ", q.args)
+
+	return sqlClause, q.args, nil
+}
+
+func (q *queryBuilder) BuildCount() (sqlClause string, args []interface{}, err error) {
+	sqlClause = q.whereClause + q.makeOrderByClause()
+
+	fmt.Println("[qbuilder] clauseCount: ", sqlClause)
+	fmt.Println("[qbuilder] argsCount: ", q.args)
+
+	return sqlClause, q.args, nil
+}
+
+func (q *queryBuilder) build(param interface{}) error {
 	p := reflect.ValueOf(param)
 	if p.Kind() != reflect.Ptr || p.IsNil() {
-		return sqlClause, args, errors.New("should be a pointer and cannot be nil")
+		return errors.New("should be a pointer and cannot be nil")
 	}
 
 	val := reflect.ValueOf(param).Elem()
 
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
-		structTags := val.Type().Field(i).Tag // param:"created_at__gte" db:"created_at"
-		tagParam := structTags.Get("param")   // created_at__lte
-		tagDB := structTags.Get("db")         // created_at
+		structTags := val.Type().Field(i).Tag    // param:"created_at__gte" db:"created_at"
+		tagParam := structTags.Get("param")      // created_at__lte
+		tagDB := structTags.Get("db")            // created_at
+		tagJsonKey := structTags.Get("json_key") // $.a.b
 
-		c := newCursor(field, tagParam, tagDB)
+		c := newCursor(field, tagParam, tagDB, tagJsonKey)
 
 		if c.IsPage() {
 			q.page = q.handleParamPage(field)
@@ -194,13 +219,7 @@ func (q *queryBuilder) Build(param interface{}) (sqlClause string, args []interf
 	// custom where
 	q.appendCustomWhere()
 
-	// result
-	sqlClause = q.whereClause + q.makeOrderByClause() + q.makeLimitClause()
-
-	fmt.Println("[qbuilder] clause: ", sqlClause)
-	fmt.Println("[qbuilder] args: ", q.args)
-
-	return sqlClause, q.args, nil
+	return nil
 }
 
 func ValidatePageAndLimit(p, l int64) (page int64, limit int64) {

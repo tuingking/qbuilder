@@ -69,7 +69,7 @@ func main() {
 		products = append(products, p)
 	}
 
-	fmt.Printf("🐶🐶[DEBUG]🐶🐶 products: %+v\n", products)
+	fmt.Printf("products: %+v\n", products)
 }
 
 type Product struct {
