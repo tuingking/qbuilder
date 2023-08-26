@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Tuingking/qbuilder"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/tuingking/qbuilder"
 )
 
 const (

@@ -1,4 +1,4 @@
-module github.com/Tuingking/qbuilder
+module github.com/tuingking/qbuilder
 
 go 1.18
 
